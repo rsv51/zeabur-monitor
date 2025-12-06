@@ -11,18 +11,50 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Session管理 - 存储在内存中,重启服务器后清空
+const activeSessions = new Map(); // { token: { createdAt: timestamp } }
+const SESSION_DURATION = 2 * 24 * 60 * 60 * 1000; // 2天
+
+// 生成随机token
+function generateToken() {
+  return 'session_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+}
+
+// 清理过期session
+function cleanExpiredSessions() {
+  const now = Date.now();
+  for (const [token, session] of activeSessions.entries()) {
+    if (now - session.createdAt > SESSION_DURATION) {
+      activeSessions.delete(token);
+    }
+  }
+}
+
+// 每小时清理一次过期session
+setInterval(cleanExpiredSessions, 60 * 60 * 1000);
+
 // 密码验证中间件
 function requireAuth(req, res, next) {
   const password = req.headers['x-admin-password'];
+  const sessionToken = req.headers['x-session-token'];
   const savedPassword = loadAdminPassword();
   
   if (!savedPassword) {
     // 如果没有设置密码，允许访问（首次设置）
     next();
+  } else if (sessionToken && activeSessions.has(sessionToken)) {
+    // 检查session是否有效
+    const session = activeSessions.get(sessionToken);
+    if (Date.now() - session.createdAt < SESSION_DURATION) {
+      next();
+    } else {
+      activeSessions.delete(sessionToken);
+      res.status(401).json({ error: 'Session已过期，请重新登录' });
+    }
   } else if (password === savedPassword) {
     next();
   } else {
-    res.status(401).json({ error: '密码错误' });
+    res.status(401).json({ error: '密码错误或Session无效' });
   }
 }
 
@@ -491,7 +523,11 @@ app.post('/api/verify-password', (req, res) => {
   }
   
   if (password === savedPassword) {
-    res.json({ success: true });
+    // 生成新的session token
+    const sessionToken = generateToken();
+    activeSessions.set(sessionToken, { createdAt: Date.now() });
+    console.log(`✅ 用户登录成功，生成Session: ${sessionToken.substring(0, 20)}...`);
+    res.json({ success: true, sessionToken });
   } else {
     res.status(401).json({ success: false, error: '密码错误' });
   }

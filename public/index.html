@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zeabur 多账号监控面板</title>
+  <title>Zeabur Monitor</title>
   <link rel="icon" type="image/png" href="favicon.png">
   <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
   <style>
@@ -503,7 +503,7 @@
     </div>
     
     <div v-if="isAuthenticated" class="container">
-      <h1>🚀 Zeabur 多账号监控面板</h1>
+      <h1>🚀 Zeabur Monitor</h1>
       <div style="background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); padding: 15px 18px; border-radius: 12px; margin-bottom: 15px; font-size: 13px; border: 1px solid rgba(255,255,255,0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
         <div style="font-weight: 700; margin-bottom: 8px; color: #f696c6;">💡 使用说明</div>
         <div style="line-height: 1.8; color: #555;">
@@ -1002,20 +1002,40 @@
           return;
         }
         
-        // 检查本地是否有保存的密码和时间戳
-        const savedPassword = localStorage.getItem('admin_password');
-        const savedTime = localStorage.getItem('password_time');
+        // 检查是否有有效的session token
+        const sessionToken = localStorage.getItem('session_token');
         
-        if (savedPassword && savedTime) {
-          const now = Date.now();
-          const elapsed = now - parseInt(savedTime);
-          const fourDays = 4 * 24 * 60 * 60 * 1000; // 4天的毫秒数
-          
-          if (elapsed < fourDays) {
-            // 4天内，自动登录
-            this.loginPassword = savedPassword;
-            await this.verifyPassword();
-            return;
+        if (sessionToken) {
+          // 尝试使用session token验证
+          try {
+            const response = await fetch('/api/accounts', {
+              headers: { 'x-session-token': sessionToken }
+            });
+            
+            if (response.ok) {
+              // Session有效，自动登录
+              this.isAuthenticated = true;
+              await this.loadManagedAccounts();
+              this.loadProjectCosts();
+              this.fetchData();
+              
+              // 启动自动刷新
+              this.refreshInterval = setInterval(() => this.fetchData(), 90000);
+              
+              // 加载透明度设置
+              const savedOpacity = localStorage.getItem('card_opacity');
+              if (savedOpacity) {
+                this.opacity = parseInt(savedOpacity);
+                this.updateOpacity();
+              }
+              return;
+            } else {
+              // Session无效，清除token
+              localStorage.removeItem('session_token');
+            }
+          } catch (error) {
+            console.log('Session验证失败:', error.message);
+            localStorage.removeItem('session_token');
           }
         }
         
@@ -1104,20 +1124,12 @@
             
             const result = await response.json();
             if (result.success) {
-              // 设置成功，自动登录
+              // 设置成功，需要登录获取session token
               this.loginPassword = this.setPassword;
-              localStorage.setItem('admin_password', this.setPassword);
-              localStorage.setItem('password_time', Date.now().toString());
-              
               this.showSetPasswordModal = false;
-              this.isAuthenticated = true;
               
-              await this.loadManagedAccounts();
-              this.loadProjectCosts();
-              this.fetchData();
-              
-              // 启动自动刷新
-              this.refreshInterval = setInterval(() => this.fetchData(), 90000);
+              // 自动验证密码获取session token
+              await this.verifyPassword();
               
               // 加载透明度设置
               const savedOpacity = localStorage.getItem('card_opacity');
@@ -1147,9 +1159,8 @@
               this.isAuthenticated = true;
               this.showLoginModal = false;
               
-              // 保存密码和时间戳
-              localStorage.setItem('admin_password', this.loginPassword);
-              localStorage.setItem('password_time', Date.now().toString());
+              // 保存session token (2天有效期,跨浏览器)
+              localStorage.setItem('session_token', result.sessionToken);
               
               await this.loadManagedAccounts();
               this.loadProjectCosts();
@@ -1179,11 +1190,12 @@
           const masked = local.substring(0, 2) + 'x'.repeat(local.length - 4) + local.substring(local.length - 2);
           return masked + '@' + domain;
         },
-        // 获取请求头（包含密码）
+        // 获取请求头（包含session token）
         getAuthHeaders() {
+          const sessionToken = localStorage.getItem('session_token');
           return {
             'Content-Type': 'application/json',
-            'x-admin-password': this.loginPassword
+            'x-session-token': sessionToken
           };
         },
         async loadManagedAccounts() {
