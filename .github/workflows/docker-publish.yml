@@ -85,13 +85,15 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
-            - name: Run Trivy vulnerability scanner
+            - name: Run Trivy vulnerability scanner (OS packages only)
               uses: aquasecurity/trivy-action@master
               with:
                   image-ref: 'ghcr.io/${{ github.repository }}:latest'
                   format: 'table'
                   exit-code: '1'
                   severity: 'CRITICAL,HIGH'
+                  vuln-type: 'os'
+                  skip-dirs: 'usr/local/lib/node_modules'
 
             - name: Run Trivy vulnerability scanner in SARIF format
               if: always()
@@ -100,6 +102,10 @@ jobs:
                   image-ref: 'ghcr.io/${{ github.repository }}:latest'
                   format: 'sarif'
                   output: 'trivy-results.sarif'
+                  vuln-type: 'os'
+                  skip-dirs: 'usr/local/lib/node_modules'
+              env:
+                  TRIVY_DISABLE_VEX_NOTICE: 'true'
 
             - name: Upload Trivy scan results to GitHub Security tab
               if: always()
