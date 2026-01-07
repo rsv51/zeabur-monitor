@@ -65,9 +65,16 @@ function requireAuth(req, res, next) {
 
 app.use(express.static('public'));
 
-// 数据文件路径
-const ACCOUNTS_FILE = path.join(__dirname, 'accounts.json');
-const PASSWORD_FILE = path.join(__dirname, 'password.json');
+// 数据文件路径 - 支持 Docker 环境持久化
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
+const PASSWORD_FILE = path.join(DATA_DIR, 'password.json');
+
+// 确保数据目录存在
+if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    console.log(`📁 数据目录已创建: ${DATA_DIR}`);
+}
 
 // 读取服务器存储的账号
 function loadServerAccounts() {
